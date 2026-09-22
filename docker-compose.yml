@@ -1,0 +1,29 @@
+# Not build-verified in the development sandbox this project was built in
+# (no Docker daemon available there -- `docker info` fails to reach
+# /var/run/docker.sock). The underlying pip install steps it runs ARE
+# verified (see backend/README section "Setup" for the exact commands run
+# directly and confirmed working). Verify this compose file yourself with:
+#   docker compose up --build
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PROVIDER=pocketsphinx
+      - ALLOWED_ORIGINS=http://localhost:5173
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/readyz')"]
+      interval: 10s
+      timeout: 3s
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_BACKEND_WS_URL: ws://localhost:8000/ws/transcribe
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
