@@ -10,6 +10,10 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # pocketsphinx here (not the app's own faster_whisper default) so
+      # `docker compose up` works without Hugging Face network access out
+      # of the box. Remove this line (or set PROVIDER=faster_whisper) once
+      # this container has real network access -- see README section 2.
       - PROVIDER=pocketsphinx
       - ALLOWED_ORIGINS=http://localhost:5173
     healthcheck:

@@ -12,7 +12,9 @@ yourself.
 ## 1. TL;DR
 
 ```bash
-# Terminal 1 — backend
+# Terminal 1 — backend (default provider is faster-whisper; needs Hugging
+# Face access on first run — see section 2. No GPU/HF access handy?
+# `echo "PROVIDER=pocketsphinx" >> backend/.env` first for an offline dev loop.)
 cd backend
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
@@ -50,8 +52,8 @@ read NetEase's Model Use License Agreement yourself on the model card before dep
 
 | Provider | Runs in this sandbox? | Accuracy | License | Needs |
 |---|---|---|---|---|
-| **pocketsphinx** (default) | ✅ verified | Low (classical HMM/GMM, ~15 yrs old) | BSD | Nothing — model ships in the pip wheel |
-| **faster-whisper** (recommended for real use) | ⚠️ unverified here | Materially better | MIT | Hugging Face access on first run; GPU optional |
+| **faster-whisper** (default) | ⚠️ unverified here | Materially better — needed to catch order vocabulary reliably | MIT | Hugging Face access on first run; GPU optional |
+| **pocketsphinx** (this project's test-suite provider) | ✅ verified | Low (classical HMM/GMM, ~15 yrs old) | BSD | Nothing — model ships in the pip wheel |
 | R2T2 | ❌ can't run here | Unknown (not tested) | Apache-2.0 code / separate weight license | GPU + Hugging Face access |
 
 Both real providers implement the exact same `TranscriptionProvider` interface
@@ -60,11 +62,40 @@ a rewrite — this is the "replaceable transcription-provider interface" the spe
 adapter could be written against the same interface once a GPU + Hugging Face access are available;
 it was not written speculatively here because it could not be tested.
 
+**Why the default is faster-whisper despite being unverified here**: this app is meant to feed a
+drive-thru voice-ordering system, where recognizing menu items, sizes, and modifiers correctly
+matters far more than in general dictation — pocketsphinx has no vocabulary-hint support at all,
+and its classical acoustic model is a poor fit for that. faster-whisper does support vocabulary
+hints (section "Order vocabulary hints" below) and is the shipped default for that reason, even
+though this sandbox can't verify it end-to-end (see immediately below). Running it here does
+prove the failure is exactly the expected one and nothing else — `python3 -c "import app.main"`
+with `PROVIDER=faster_whisper` fails with `httpx.ProxyError: 403 Forbidden` while
+`huggingface_hub` tries to fetch model info, i.e. the egress block, not a bug in the provider code.
+
 **pocketsphinx was verified**, end to end, three separate ways documented in section 5: a direct
 unit-level streaming test, a live WebSocket session test over a real TCP socket, and a real headless
 browser (Chromium, with a real WAV fed through its fake-microphone device) driving the actual
-web UI. **faster-whisper's code is real and complete** (`backend/app/providers/faster_whisper_provider.py`)
-but has not been run in this environment — do that yourself per section 5.4 before relying on it.
+web UI. It remains what this project's own automated test suite runs against
+(`tests/conftest.py` pins `PROVIDER=pocketsphinx` regardless of the app's real default) precisely
+because it's the only engine that can be verified offline. **faster-whisper's code is real and
+complete** (`backend/app/providers/faster_whisper_provider.py`) but has not been run to
+completion in this environment — do that yourself per section 5.4 before relying on it.
+
+### Order vocabulary hints
+
+Since this feeds a voice-ordering system, every session applies a small built-in set of generic
+drive-thru/QSR terms (sizes, combo/upsize language, common modifiers — see
+`app/config.py:default_vocabulary_hints`) as a hint to the engine, unioned with whatever
+restaurant-specific hints the client sends (the Settings panel's vocabulary field, or
+`session_start.vocabulary_hints` in the protocol directly). Only providers with
+`supports_hints=True` actually use them — that's faster-whisper (via Whisper's `initial_prompt`,
+a soft nudge, not a hard constraint) today; pocketsphinx ignores them entirely (logged, not
+silently dropped — see `PocketSphinxSession.__init__`). Override the generic defaults with a real
+menu via `DEFAULT_VOCABULARY_HINTS` in `.env` (comma-separated). The merge logic itself
+(`app/config.py:merge_vocabulary_hints`) is unit-tested (`tests/test_config.py`) independent of
+which provider is active. **Whether hints measurably improve recognition of real menu terms is
+unverified** — faster-whisper hasn't run end-to-end here at all (see above); verify with your own
+menu and real speech per section 5.5.
 
 ## 3. Architecture
 
@@ -77,8 +108,8 @@ Browser                                    Backend (FastAPI)
 │     PCM16 framing)       │  frames         │  sender → outbound queue  │
 │  → WebSocket client      │                 │                            │
 │    (reconnect/backoff)   │                 │  TranscriptionProvider     │
-│  → transcript reducer    │                 │   ├─ PocketSphinxProvider  │
-│  → React UI              │                 │   └─ FasterWhisperProvider │
+│  → transcript reducer    │                 │   ├─ FasterWhisperProvider │
+│  → React UI              │                 │   └─ PocketSphinxProvider  │
 └─────────────────────────┘                 └────────────────────────────┘
 ```
 
@@ -111,8 +142,18 @@ Requires Python 3.11+.
 ```bash
 cd backend
 python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env   # adjust if needed; defaults work for local dev
+pip install -r requirements.txt   # includes faster-whisper + pocketsphinx
+cp .env.example .env   # adjust if needed
+uvicorn app.main:app --reload --port 8000
+```
+
+The default provider is faster-whisper, which downloads model weights from Hugging Face on first
+run — needs real network access to `huggingface.co` (see section 2 for why that's unverified in
+this project's own sandbox). If you don't have that handy yet, switch to the fully offline
+provider for local dev:
+
+```bash
+echo "PROVIDER=pocketsphinx" >> .env
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -120,17 +161,8 @@ Verify it's actually ready (not just "the process started"):
 
 ```bash
 curl http://localhost:8000/readyz
-# {"ready":true,"provider":"pocketsphinx","model":"pocketsphinx-en-us ...","active_sessions":0,...}
-```
-
-To use faster-whisper instead (see section 2 for the trade-off, section 5.4 for why it's
-unverified here):
-
-```bash
-pip install faster-whisper==1.1.0
-echo "PROVIDER=faster_whisper" >> .env
-uvicorn app.main:app --reload --port 8000
-# first request downloads model weights from Hugging Face -- needs network access
+# {"ready":true,"provider":"faster_whisper","model":"faster-whisper (small)","active_sessions":0,...}
+# (or provider":"pocketsphinx" if you switched above)
 ```
 
 ### 4.2 Frontend
@@ -177,18 +209,22 @@ docker compose up --build
 
 ```bash
 cd backend && python3 -m pytest -q
-# 32 passed
+# 38 passed
 ```
 
+`tests/conftest.py` sets `PROVIDER=pocketsphinx` before anything else imports, so this suite runs
+fully offline regardless of the app's real default (faster-whisper) — see section 2.
+
 Covers: audio frame packing/unpacking, resampling, downmixing, RMS level math
-(`test_audio.py`); the reconciliation state machine — replace-not-append, immutable commits,
-dedup by id not text, legitimate-repeat preservation (`test_reconciler.py`); full WebSocket
-session lifecycle including the reject-without-session_start path, malformed-message handling,
-and pause/resume timeline preservation, run against the *real* FastAPI app + real pocketsphinx
-provider, not mocks (`test_session_lifecycle.py`); and **real audio in, real text out** —
-synthesized (espeak-ng) speech streamed through the actual `PocketSphinxSession` in 100ms chunks,
-asserting genuine incremental partial hypotheses and non-empty committed output
-(`test_integration_pocketsphinx.py`).
+(`test_audio.py`); order-vocabulary hint merging — union not replace, case-insensitive dedup,
+`DEFAULT_VOCABULARY_HINTS` env override (`test_config.py`); the reconciliation state machine —
+replace-not-append, immutable commits, dedup by id not text, legitimate-repeat preservation
+(`test_reconciler.py`); full WebSocket session lifecycle including the reject-without-session_start
+path, malformed-message handling, and pause/resume timeline preservation, run against the *real*
+FastAPI app + real pocketsphinx provider, not mocks (`test_session_lifecycle.py`); and **real
+audio in, real text out** — synthesized (espeak-ng) speech streamed through the actual
+`PocketSphinxSession` in 100ms chunks, asserting genuine incremental partial hypotheses and
+non-empty committed output (`test_integration_pocketsphinx.py`).
 
 ### 5.2 Live server, real socket, real speech (manual, run and confirmed)
 
@@ -229,9 +265,16 @@ permission-denial dialog, real device unplug events, or non-Chromium browsers �
 
 ### 5.4 Explicitly unverified
 
-- **faster-whisper provider**: real, complete code; never executed (needs Hugging Face access
-  this sandbox blocks). Before relying on it: `pip install faster-whisper==1.1.0`, set
-  `PROVIDER=faster_whisper`, and run the app — first request will download weights.
+- **faster-whisper provider**: real, complete code — and now the app's shipped default — but
+  never run to completion in this sandbox (needs Hugging Face access this sandbox blocks). It was
+  run far enough to confirm the failure is exactly the network block (`httpx.ProxyError: 403
+  Forbidden` from `huggingface_hub`, section 2), not a code bug, but that's not the same as
+  confirming it actually transcribes anything. Before relying on it: `pip install -r
+  requirements.txt` (already includes it), run the app with network access to Hugging Face — first
+  request downloads weights.
+- **Whether order-vocabulary hints measurably help**: the merge logic is unit-tested, but nothing
+  in this sandbox exercised faster-whisper's `initial_prompt` against real menu speech — see the
+  "Order vocabulary hints" section above.
 - **R2T2**: not run at all (see section 2).
 - **Recognition accuracy with a real human voice**: everything above used synthesized (espeak-ng)
   speech. PocketSphinx's word-error rate on a real, clear, native-English voice will likely be
@@ -263,10 +306,11 @@ cd frontend && npm run dev
 # start recording, physically unplug/disable the mic. Expect "microphone
 # was disconnected" and a clean stop (mic track .onended fires).
 
-# 4. faster-whisper:
-pip install faster-whisper==1.1.0
-echo "PROVIDER=faster_whisper" >> backend/.env
-# restart uvicorn, repeat step 1. Compare accuracy to pocketsphinx.
+# 4. faster-whisper, end to end (default provider; requires HF network access):
+# ensure PROVIDER=faster_whisper in backend/.env (the shipped default),
+# restart uvicorn somewhere with real network access, repeat step 1.
+# Compare accuracy against pocketsphinx (PROVIDER=pocketsphinx), and try
+# the Settings panel's vocabulary field with real menu items.
 
 # 5. Word-error rate: record yourself reading a known transcript, download
 #    the app's output as .txt, diff against the reference with a WER tool
@@ -337,10 +381,17 @@ budgeting:
 
 ## 9. Known limitations
 
-- pocketsphinx (the default) has materially worse accuracy than modern neural ASR — expect it to
-  struggle outside clear, close-mic, standard American English. This is disclosed, not hidden.
-- pocketsphinx supports English only in this deployment (only the en-us acoustic model ships in
-  the pip wheel) and does not support custom vocabulary hints.
+- faster-whisper (the default) needs Hugging Face access on first run and meaningfully more
+  compute than pocketsphinx; it has not been run to completion anywhere in this project (section
+  5.4). If you can't give it network/GPU access yet, `PROVIDER=pocketsphinx` is the fallback —
+  but pocketsphinx has materially worse accuracy than modern neural ASR (expect it to struggle
+  outside clear, close-mic, standard American English), supports English only (only the en-us
+  acoustic model ships in the pip wheel), and does not support vocabulary hints at all — it
+  cannot use the order-vocabulary feature described in section 2.
+- The built-in default order-vocabulary hints are a generic drive-thru/QSR starting point, not
+  any real restaurant's menu — set `DEFAULT_VOCABULARY_HINTS` before relying on this for actual
+  orders, and see the "Order vocabulary hints" note in section 2 on why this is unverified to
+  actually help.
 - faster-whisper's "streaming" is re-decoding a growing buffer on a VAD-bounded utterance, not a
   natively incremental decoder — see its module docstring for the latency/CPU trade-off this
   implies, and why a natively streaming model would do better in production.
@@ -362,11 +413,12 @@ budgeting:
    runs against a small corpus of real recorded (not synthesized) reference audio with known
    transcripts, so accuracy/latency claims in this README stop being "go measure it yourself" and
    become numbers checked into the repo.
-3. **faster-whisper verified as the real default**: once run somewhere with GPU/Hugging Face
-   access, promote it to the documented default provider (with an actual measured WER/latency
-   comparison against pocketsphinx), and add an R2T2 adapter behind the same
-   `TranscriptionProvider` interface if its GPU/licensing requirements are acceptable for your
-   deployment.
+3. **faster-whisper run end-to-end, with a real menu**: it's the shipped default, but has not
+   run anywhere with real Hugging Face/network access in this project. Run it somewhere that has
+   that access, set `DEFAULT_VOCABULARY_HINTS` to an actual restaurant's menu, measure whether
+   hints reduce menu-item recognition errors, and only then treat "faster-whisper + hints" as
+   confirmed rather than just implemented. Add an R2T2 adapter behind the same
+   `TranscriptionProvider` interface afterward if its GPU/licensing requirements are acceptable.
 
 ## 11. Project layout
 
@@ -381,9 +433,9 @@ backend/
     config.py                Environment-based settings
     providers/
       base.py                 TranscriptionProvider interface
-      pocketsphinx_provider.py   Default, offline, verified
-      faster_whisper_provider.py  Production-grade, unverified here
-  tests/                  32 automated tests (see section 5.1)
+      faster_whisper_provider.py  Default, production-grade, unverified here
+      pocketsphinx_provider.py   Offline, verified, used by the test suite
+  tests/                  38 automated tests (see section 5.1)
   requirements.txt
   Dockerfile
   .env.example

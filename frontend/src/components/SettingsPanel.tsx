@@ -43,16 +43,22 @@ export function SettingsPanel(props: SettingsPanelProps) {
 
           <label className="settings-field">
             <span>
-              Custom vocabulary (names, brands, terms){" "}
+              Custom vocabulary (menu items, brands, names){" "}
               {!props.supportsHints && <em className="settings-hint-note">— not supported by the current provider</em>}
             </span>
             <input
               type="text"
-              placeholder="e.g. Youdao, R2T2, Anthropic"
+              placeholder="e.g. Big Mac, McFlurry, no pickles"
               value={props.vocabularyHints}
               onChange={(e) => props.onVocabularyHintsChange(e.target.value)}
               disabled={props.disabled || !props.supportsHints}
             />
+            {props.supportsHints && (
+              <em className="settings-hint-note">
+                A generic set of order terms (sizes, combos, common modifiers) is applied
+                automatically — add this restaurant&apos;s specific menu items above.
+              </em>
+            )}
           </label>
 
           {props.providerLabel && (

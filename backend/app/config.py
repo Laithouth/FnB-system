@@ -21,13 +21,16 @@ def _list(name: str, default: list[str]) -> list[str]:
 
 @dataclass(frozen=True)
 class Settings:
-    # Which provider backs live transcription. "pocketsphinx" runs fully
-    # offline (model bundled in the pip wheel) and is the only provider
-    # verified to work in network-restricted environments. "faster_whisper"
-    # gives materially better accuracy but requires downloading model
-    # weights from Hugging Face on first run and a machine with enough
-    # CPU/GPU headroom -- see backend/README section on providers.
-    provider: str = field(default_factory=lambda: os.environ.get("PROVIDER", "pocketsphinx"))
+    # Which provider backs live transcription. "faster_whisper" (the
+    # default) gives materially better accuracy -- needed for recognizing
+    # menu items/order vocabulary reliably -- but requires downloading
+    # model weights from Hugging Face on first run and a machine with
+    # enough CPU/GPU headroom. "pocketsphinx" runs fully offline (model
+    # bundled in the pip wheel); it's the only provider verified to work in
+    # network-restricted environments, which is why this project's own test
+    # suite pins it via tests/conftest.py regardless of this default -- see
+    # README section 2.
+    provider: str = field(default_factory=lambda: os.environ.get("PROVIDER", "faster_whisper"))
 
     # faster-whisper model size (tiny/base/small/medium/large-v3). Ignored
     # by the pocketsphinx provider.
@@ -40,6 +43,27 @@ class Settings:
     )
 
     sample_rate: int = field(default_factory=lambda: int(os.environ.get("SAMPLE_RATE", "16000")))
+
+    # Order-domain vocabulary hints applied to every session by default (in
+    # addition to whatever hints the client sends in session_start -- the
+    # two lists are unioned, not replaced, in main.py). Only the active
+    # provider's `supports_hints` capability actually uses these --
+    # pocketsphinx ignores them entirely (see PocketSphinxSession). This is
+    # a generic drive-thru/QSR starting point, not any specific restaurant's
+    # real menu -- override with a real menu's item/modifier names via
+    # DEFAULT_VOCABULARY_HINTS for an actual deployment.
+    default_vocabulary_hints: list[str] = field(
+        default_factory=lambda: _list(
+            "DEFAULT_VOCABULARY_HINTS",
+            [
+                "combo", "upsize", "value meal", "drive-thru", "to go", "for here",
+                "small", "medium", "large", "extra large",
+                "no onions", "no pickles", "extra cheese", "light ice", "no mayo",
+                "diet", "zero sugar", "side of fries", "dipping sauce", "add bacon",
+                "gluten free", "order number", "combo number",
+            ],
+        )
+    )
 
     # Languages exposed in the UI as "tested" vs "experimental" -- see
     # provider.supported_languages() for what the active provider actually
@@ -83,3 +107,20 @@ class Settings:
 
 
 settings = Settings()
+
+
+def merge_vocabulary_hints(client_hints: list[str], default_hints: list[str]) -> list[str]:
+    """Union a session's own hints (e.g. a specific restaurant's menu) with
+    the server's default order-vocabulary hints -- neither list replaces
+    the other. Client hints come first (more specific, so they win any
+    provider-side truncation); duplicates are dropped case-insensitively,
+    first occurrence kept, order otherwise preserved."""
+    seen: set[str] = set()
+    merged: list[str] = []
+    for hint in [*client_hints, *default_hints]:
+        cleaned = hint.strip()
+        key = cleaned.lower()
+        if cleaned and key not in seen:
+            seen.add(key)
+            merged.append(cleaned)
+    return merged

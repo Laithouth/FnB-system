@@ -2,10 +2,21 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 pydantic==2.10.4
 websockets==14.1
-pocketsphinx==5.1.1
 python-multipart==0.0.20
 
-# Optional production provider -- see app/providers/faster_whisper_provider.py.
-# Not installed by default because it requires downloading model weights
-# from Hugging Face at first run (network access this dev sandbox blocks).
-# Install manually with: pip install faster-whisper==1.1.0
+# faster-whisper: the default transcription provider (PROVIDER=faster_whisper,
+# see app/providers/faster_whisper_provider.py). Downloads model weights from
+# Hugging Face on first run -- needs network access to huggingface.co, which
+# this project's own dev sandbox blocks (see README section 2). Pinned to the
+# versions pip actually resolved when this was last installed/verified here.
+faster-whisper==1.2.1
+webrtcvad-wheels==2.0.14  # drop-in replacement for the unmaintained `webrtcvad`
+                          # package, which fails to build on Python 3.11 here;
+                          # same `import webrtcvad` module name, prebuilt wheels.
+
+# pocketsphinx: bundled-offline fallback provider (PROVIDER=pocketsphinx).
+# The only provider verified end-to-end in a network-restricted environment
+# -- see README section 2/5. Used by this project's own test suite for that
+# reason (tests/conftest.py pins PROVIDER=pocketsphinx regardless of the
+# default above, so `pytest` stays runnable offline).
+pocketsphinx==5.1.1

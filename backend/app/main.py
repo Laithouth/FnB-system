@@ -22,7 +22,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from .audio import AudioFrameError, unpack_audio_frame
-from .config import settings
+from .config import merge_vocabulary_hints, settings
 from .protocol import ErrorMessage, ReadyMessage, StatusMessage, TranscriptEvent, parse_client_message
 from .providers.base import TranscriptionProvider
 from .providers.pocketsphinx_provider import PocketSphinxProvider
@@ -224,11 +224,13 @@ async def ws_transcribe(websocket: WebSocket) -> None:
     if not provider.is_ready():
         await websocket.send_text(json.dumps(StatusMessage(state="loading_model").model_dump()))
 
+    merged_hints = merge_vocabulary_hints(start_msg.vocabulary_hints, settings.default_vocabulary_hints)
+
     try:
         session = session_manager.create_session(
             language=start_msg.language,
             sample_rate=start_msg.sample_rate,
-            vocabulary_hints=start_msg.vocabulary_hints,
+            vocabulary_hints=merged_hints,
         )
     except Exception as exc:  # e.g. unsupported language for this provider
         logger.exception("failed to start session")
