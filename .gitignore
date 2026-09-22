@@ -35,3 +35,16 @@
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Live Transcriber #
+#####################
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.pytest_cache/
+backend/venv/
+backend/.venv/
+backend/.env
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+*.pyc
