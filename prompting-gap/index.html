@@ -26,6 +26,8 @@
   --good:#5CCB98; --good-soft:#16322A; --warn:#E6B45A; --warn-soft:#3A2D14; --crit:#F08585; --crit-soft:#3A1C1F;
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
+#ai-out{display:grid;gap:10px}
 body{background:var(--ground);color:var(--ink);font:15px/1.55 var(--sans);-webkit-font-smoothing:antialiased}
 .wrap{max-width:1080px;margin:0 auto;padding-inline:20px;padding-block:28px 64px}
 h1,h2,h3{font-family:var(--serif);font-weight:600;text-wrap:balance;margin:0;letter-spacing:-.01em}
@@ -152,26 +154,63 @@ footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);font-si
 
 <div class="wrap">
 <header>
-  <p class="eyebrow">Evidence synthesis · six sources · August 2026</p>
+  <p class="eyebrow">Prompt Lab · built on six studies of prompt design</p>
   <h1>The Prompting Gap</h1>
-  <p class="lede">How much does the way you phrase a request change what a language model gives back — and can people be <strong>taught</strong> to phrase it well, or do they only <strong>borrow</strong> the skill while the tool is on?</p>
-  <div class="stats" aria-label="Headline numbers">
+  <p class="lede">Formatting alone can swing a model's accuracy by up to <strong>76 points</strong>. Paste a prompt you actually use and see how it measures up on the three levers the research separates — then fix what's missing.</p>
+</header>
+
+<nav class="tabs" role="tablist" aria-label="Sections">
+  <button role="tab" id="t-lab" aria-controls="lab" aria-selected="true">Prompt Lab</button>
+  <button role="tab" id="t-evidence" aria-controls="evidence" aria-selected="false">The evidence</button>
+  <button role="tab" id="t-sources" aria-controls="sources" aria-selected="false">Sources &amp; rigor</button>
+  <button role="tab" id="t-gap" aria-controls="gap" aria-selected="false">The open question</button>
+</nav>
+
+<!-- LAB -->
+<section id="lab" role="tabpanel" aria-labelledby="t-lab">
+  <div class="lab">
+    <div class="panel">
+      <label for="prompt" class="eyebrow">Your prompt</label>
+      <textarea id="prompt" spellcheck="false"></textarea>
+      <div class="row">
+        <button class="btn" id="ex-weak" type="button">Load weak example</button>
+        <button class="btn" id="ex-strong" type="button">Load strong example</button>
+        <span class="hint num" id="wc"></span>
+      </div>
+      <div id="ai-box" hidden>
+        <div class="row" style="margin-top:6px">
+          <button class="btn primary" id="improve" type="button">Rewrite with Claude</button>
+          <button class="btn" id="stop" type="button" hidden>Stop</button>
+          <span class="hint">Uses your own Claude account; asks permission first.</span>
+        </div>
+      </div>
+      <div id="ai-out" hidden>
+        <span class="eyebrow">Rewritten prompt</span>
+        <div class="out" id="ai-text"></div>
+        <ul class="changes" id="ai-changes"></ul>
+        <div class="row"><button class="btn" id="use-it" type="button" hidden>Use this version</button><button class="btn" id="copy" type="button" hidden>Copy</button><span class="hint" id="ai-note"></span></div>
+      </div>
+    </div>
+    <div class="panel" aria-live="polite">
+      <div class="score"><b id="score" class="num">0</b><span class="hint">of <span id="total" class="num">10</span> checks met</span></div>
+      <div class="meter"><i id="meter" style="width:0"></i></div>
+      <div id="levers"></div>
+      <p class="caveat">These checks are a heuristic built from the paper's categories, not a validated instrument. The paper notes the third lever — iteration — is <b>not measured directly</b> by any source. And per [2], even small format choices can swing results: test your prompt in a couple of formats.</p>
+    </div>
+  </div>
+  <div class="section-gap"></div>
+  <div class="qhead"><span class="qtag">WHY</span><h2>Why these three levers</h2>
+    <p>What the prompt says, how it's organized, and what happens after the first answer — from Section 3.3 of the synthesis. <a href="#evidence" data-go="evidence">See all the evidence →</a></p></div>
+  <div class="stats" aria-label="Headline numbers" style="margin-top:0">
     <div class="stat"><span class="src">[2] format only</span><b class="num">6–76 pts</b><span>accuracy swing from meaning-preserving formatting changes</span></div>
     <div class="stat"><span class="src">[3] BCG / HBS</span><b class="num">+49 pts</b><span>coding benchmark, AI-assisted vs unassisted consultants</span></div>
     <div class="stat"><span class="src">[4] NBER</span><b class="num">+35%</b><span>productivity for the least experienced support agents</span></div>
     <div class="stat"><span class="src">[6] pilot, n = 45</span><b class="num">d = 0.91</b><span>AI-literacy gain after six hours of instruction</span></div>
   </div>
-</header>
-
-<nav class="tabs" role="tablist" aria-label="Sections">
-  <button role="tab" id="t-evidence" aria-controls="evidence" aria-selected="true">Evidence</button>
-  <button role="tab" id="t-lab" aria-controls="lab" aria-selected="false">Prompt Lab</button>
-  <button role="tab" id="t-sources" aria-controls="sources" aria-selected="false">Sources &amp; rigor</button>
-  <button role="tab" id="t-gap" aria-controls="gap" aria-selected="false">The open question</button>
-</nav>
+</section>
 
 <!-- EVIDENCE -->
-<section id="evidence" role="tabpanel" aria-labelledby="t-evidence">
+<section id="evidence" role="tabpanel" aria-labelledby="t-evidence" hidden>
   <div class="qhead"><span class="qtag">Q1</span><h2>How big is the effect when meaning is held fixed?</h2>
     <p>Sections 3–4. Output shifts with wording and format; people who happen to phrase well pull ahead — and the least experienced gain most.</p></div>
   <div class="grid2">
@@ -223,41 +262,6 @@ footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);font-si
   </div>
 </section>
 
-<!-- LAB -->
-<section id="lab" role="tabpanel" aria-labelledby="t-lab" hidden>
-  <div class="qhead"><span class="qtag">APPLY</span><h2>Check a prompt against the three levers</h2>
-    <p>Section 3.3 separates <b>what is said</b>, <b>how it is organized</b>, and <b>what happens after</b> the first answer. Paste a prompt you actually use.</p></div>
-  <div class="lab">
-    <div class="panel">
-      <label for="prompt" class="eyebrow">Your prompt</label>
-      <textarea id="prompt" spellcheck="false"></textarea>
-      <div class="row">
-        <button class="btn" id="ex-weak" type="button">Load weak example</button>
-        <button class="btn" id="ex-strong" type="button">Load strong example</button>
-        <span class="hint num" id="wc"></span>
-      </div>
-      <div id="ai-box" hidden>
-        <div class="row" style="margin-top:6px">
-          <button class="btn primary" id="improve" type="button">Rewrite with Claude</button>
-          <button class="btn" id="stop" type="button" hidden>Stop</button>
-          <span class="hint">Uses your own Claude account; asks permission first.</span>
-        </div>
-      </div>
-      <div id="ai-out" hidden style="display:grid;gap:10px">
-        <span class="eyebrow">Rewritten prompt</span>
-        <div class="out" id="ai-text"></div>
-        <ul class="changes" id="ai-changes"></ul>
-        <div class="row"><button class="btn" id="use-it" type="button" hidden>Use this version</button><button class="btn" id="copy" type="button" hidden>Copy</button><span class="hint" id="ai-note"></span></div>
-      </div>
-    </div>
-    <div class="panel" aria-live="polite">
-      <div class="score"><b id="score" class="num">0</b><span class="hint">of <span id="total" class="num">10</span> checks met</span></div>
-      <div class="meter"><i id="meter" style="width:0"></i></div>
-      <div id="levers"></div>
-      <p class="caveat">These checks are a heuristic built from the paper's categories, not a validated instrument. The paper notes the third lever — iteration — is <b>not measured directly</b> by any source. And per [2], even small format choices can swing results: test your prompt in a couple of formats.</p>
-    </div>
-  </div>
-</section>
 
 <!-- SOURCES -->
 <section id="sources" role="tabpanel" aria-labelledby="t-sources" hidden>
@@ -379,16 +383,17 @@ footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);font-si
   const tabs=[...document.querySelectorAll('[role="tab"]')];
   function show(id,push){
     tabs.forEach(t=>{const on=t.getAttribute("aria-controls")===id;t.setAttribute("aria-selected",on);document.getElementById(t.getAttribute("aria-controls")).hidden=!on;});
-    try{localStorage.setItem("pg-tab",id);}catch(e){}
+    try{localStorage.setItem("pg-tab2",id);}catch(e){}
     if(push){try{history.replaceState(null,"","#"+id);}catch(e){}}
   }
   tabs.forEach((t,i)=>{
     t.addEventListener("click",()=>show(t.getAttribute("aria-controls"),true));
     t.addEventListener("keydown",e=>{if(e.key==="ArrowRight"||e.key==="ArrowLeft"){const n=tabs[(i+(e.key==="ArrowRight"?1:tabs.length-1))%tabs.length];n.focus();n.click();}});
   });
+  document.querySelectorAll("[data-go]").forEach(a=>a.addEventListener("click",e=>{e.preventDefault();show(a.dataset.go,true);scrollTo({top:0,behavior:"smooth"});}));
   const ids=tabs.map(t=>t.getAttribute("aria-controls"));
   let start=location.hash.slice(1);
-  if(!ids.includes(start)){try{start=localStorage.getItem("pg-tab");}catch(e){start=null}}
+  if(!ids.includes(start)){try{start=localStorage.getItem("pg-tab2");}catch(e){start=null}}
   if(ids.includes(start)) show(start,false);
 
   // sources
@@ -490,7 +495,7 @@ Before you finish, check the draft against each constraint and list any you miss
   (async()=>{
     if(!window.claude||!window.claude.use) return;
     const sample=await window.claude.use("sample"); if(!sample) return;
-    aiBox.hidden=false; aiOut.style.display="";
+    aiBox.hidden=false;
     let ctl;
     stop.onclick=()=>ctl&&ctl.abort();
     improve.onclick=async()=>{
