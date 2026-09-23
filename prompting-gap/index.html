@@ -177,11 +177,15 @@ footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);font-si
         <button class="btn" id="ex-strong" type="button">Load strong example</button>
         <span class="hint num" id="wc"></span>
       </div>
+      <div class="row" style="margin-top:6px">
+        <button class="btn primary" id="rewrite" type="button">Rewrite</button>
+        <span class="hint">Instant — fills in the missing levers, runs in your browser.</span>
+      </div>
       <div id="ai-box" hidden>
-        <div class="row" style="margin-top:6px">
-          <button class="btn primary" id="improve" type="button">Rewrite with Claude</button>
+        <div class="row">
+          <button class="btn" id="improve" type="button">Rewrite with Claude</button>
           <button class="btn" id="stop" type="button" hidden>Stop</button>
-          <span class="hint">Uses your own Claude account; asks permission first.</span>
+          <span class="hint">Deeper rewrite on your Claude account; Claude asks once before the first use.</span>
         </div>
       </div>
       <div id="ai-out" hidden>
@@ -492,6 +496,47 @@ Before you finish, check the draft against each constraint and list any you miss
         improve=document.getElementById("improve"), stop=document.getElementById("stop"), useIt=document.getElementById("use-it"), copyBtn=document.getElementById("copy");
   const ERR={rate_limited:"Too many requests right now — try again in a minute.",session_expired:"Sign in to Claude again, then retry.",refused:"Claude declined this prompt. Try rephrasing it.",invalid_json:"The answer came back in an unexpected shape. Try again.",prompt_too_large:"That prompt is too long. Shorten it and retry.",empty_completion:"No answer came back. Try again.",upstream_error:"Connection interrupted. Try again."};
   let latest="";
+  function showResult(text,changes,note){
+    latest=text; aiOut.hidden=false; aiText.textContent=text; aiChanges.replaceChildren();
+    changes.forEach(c=>{const li=document.createElement("li");li.innerHTML='<span class="chip"></span><span></span>';li.children[0].textContent=String(c.lever||"");li.children[1].textContent=String(c.change||"");aiChanges.append(li);});
+    useIt.hidden=!text; copyBtn.hidden=!text; aiNote.textContent=note||"";
+  }
+  useIt.onclick=()=>{ta.value=latest;evaluate();aiNote.textContent="Loaded into the editor — see the new score.";};
+  copyBtn.onclick=()=>{navigator.clipboard.writeText(latest).then(()=>{aiNote.textContent="Copied.";},()=>{const r=document.createRange();r.selectNodeContents(aiText);const s=getSelection();s.removeAllRanges();s.addRange(r);aiNote.textContent="Selected — press Ctrl/Cmd+C.";});};
+
+  // Instant local rewrite: keeps the prompt, adds labelled parts for each missed check
+  const ADD={
+    "Gives context or a role":["Context","[Who is this for, and who should the assistant act as?]"],
+    "States a specific goal":["Goal","[What outcome do you want — what should the reader think or do?]"],
+    "Sets constraints":["Constraints","- Length: [e.g. under 150 words]\n- Tone: [e.g. warm, plain, formal]\n- Must include / avoid: [ ]"],
+    "Includes an example":["Example of the style I want","\"[Paste a sentence or two that sounds right]\""],
+    "Specifies the output format":["Format","[e.g. a subject line, then 3 short paragraphs / a table / bullet points]"],
+    "Breaks work into steps":["Steps","1. [First, …]\n2. [Then, …]\n3. [Finally, …]"],
+  };
+  const AFTER={
+    "Asks the model to check its work":"Before you finish, check your answer against each constraint above and list anything you missed.",
+    "Invites clarifying questions":"If anything important is unclear, ask me before you start.",
+    "Plans for revision":"End by naming the weakest part of your draft and one way to improve it.",
+  };
+  function localRewrite(p){
+    const missed=new Set(); const changes=[];
+    LEVERS.forEach(l=>l.checks.forEach(c=>{if(!c.f(p)){missed.add(c.t);}}));
+    if(!missed.size) return {text:p,changes:[],note:"This prompt already meets every check — nothing to add."};
+    const parts=[];
+    const ctx=missed.has("Gives context or a role"); 
+    if(ctx){parts.push("Context: "+ADD["Gives context or a role"][1]);changes.push({lever:"What is said",change:"Added a context line for audience and role."});}
+    parts.push((missed.has("Separated into parts")||ctx?"Task: ":"")+p.trim());
+    if(missed.has("Separated into parts")) changes.push({lever:"How it is organized",change:"Split the prompt into labelled parts."});
+    ["States a specific goal","Sets constraints","Includes an example"].forEach(k=>{if(missed.has(k)){parts.push(ADD[k][0]+":\n"+ADD[k][1]);changes.push({lever:"What is said",change:"Added a "+ADD[k][0].toLowerCase()+" slot."});}});
+    ["Specifies the output format","Breaks work into steps"].forEach(k=>{if(missed.has(k)){parts.push(ADD[k][0]+":\n"+ADD[k][1]);changes.push({lever:"How it is organized",change:"Added "+ADD[k][0].toLowerCase()+"."});}});
+    const after=Object.keys(AFTER).filter(k=>missed.has(k)).map(k=>AFTER[k]);
+    if(after.length){parts.push(after.join(" "));changes.push({lever:"What happens after",change:"Asked the model to "+Object.keys(AFTER).filter(k=>missed.has(k)).map(k=>k.replace(/^(Asks the model to|Invites|Plans for)\s*/,"").toLowerCase()).join(", ")+"."});}
+    return {text:parts.join("\n\n"),changes,note:"Fill in the [brackets], then use it."};
+  }
+  document.getElementById("rewrite").onclick=()=>{
+    const p=ta.value.trim(); if(!p){aiOut.hidden=false;aiText.textContent="";aiChanges.replaceChildren();useIt.hidden=copyBtn.hidden=true;aiNote.textContent="Write a prompt first.";return;}
+    const r=localRewrite(p); showResult(r.text,r.changes,r.note);
+  };
   (async()=>{
     if(!window.claude||!window.claude.use) return;
     const sample=await window.claude.use("sample"); if(!sample) return;
@@ -523,12 +568,10 @@ ${p.slice(0,6000)}
         if(latest){useIt.hidden=false;copyBtn.hidden=false;}
       }catch(e){
         if(e&&e.code==="cancelled"){aiText.textContent="Stopped.";}
-        else if(e&&["not_granted","sampling_disabled","not_declared","capability_disabled","capability_removed"].includes(e.code)){aiBox.hidden=true;aiOut.hidden=true;}
+        else if(e&&["not_granted","sampling_disabled","not_declared","capability_disabled","capability_removed"].includes(e.code)){aiBox.hidden=true;aiText.textContent="";aiNote.textContent="Claude rewrite is off for this page — use Rewrite instead.";}
         else{aiText.textContent="";aiNote.textContent=ERR[e&&e.code]||ERR.upstream_error;}
       }finally{improve.disabled=false;stop.hidden=true;}
     };
-    useIt.onclick=()=>{ta.value=latest;evaluate();aiNote.textContent="Loaded into the editor — see the new score.";};
-    copyBtn.onclick=()=>{navigator.clipboard.writeText(latest).then(()=>{aiNote.textContent="Copied.";},()=>{const r=document.createRange();r.selectNodeContents(aiText);const s=getSelection();s.removeAllRanges();s.addRange(r);aiNote.textContent="Selected — press Ctrl/Cmd+C.";});};
   })();
 })();
 </script>
